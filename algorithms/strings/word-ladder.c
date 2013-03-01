@@ -7,6 +7,14 @@
 
 #define LINE_BUFF_SIZE (1024)
 #define HASH_SIZE (1024 * 1024)
+#define INIT_ARRAY_SIZE (256)
+
+
+struct neighbor {
+  char *word;
+  int is_visited;
+  struct neighbor **neighbors;
+};
 
 
 char *lowercase(char *word) {
@@ -32,14 +40,40 @@ int heuristic(char *word1, char *word2) {
 }
 
 
+char **get_dynamic_array(char ***old_array, size_t old_size, size_t new_size) {
+  char **new_array;
+  new_array = malloc(sizeof(char *) * new_size);
+
+  if (old_array != NULL) {
+    memcpy(new_array, *old_array, old_size);
+  }
+  return new_array;
+}
+
+
+void add_word_to_dynamic_array(char *word, char ***array, int *size, int *word_nums) {
+  if (*word_nums >= *size - 1) {
+    int new_size = *size * 2;
+    *array = get_dynamic_array(array, *size, new_size);
+    *size = new_size;
+  }
+  *array[*word_nums] = strdup(word);
+  (*word_nums)++;
+}
+
+
 char **get_variants(const char *word, char *chars) {
   int i, length;
   char letter;
   char *copy_word, *pointer;
+  char **neighbor_array;
+  int neighbor_nums = 0;
+  int array_size = INIT_ARRAY_SIZE;
   ENTRY e, *ep;
 
   length = strlen(word);
   copy_word = strdup(word);
+  neighbor_array = get_dynamic_array(NULL, 0, array_size);
 
   for (i = 0; i < length; i++) {
     letter = copy_word[i];
@@ -53,12 +87,15 @@ char **get_variants(const char *word, char *chars) {
       copy_word[i] = *pointer;
       e.key = copy_word;
       ep = hsearch(e, FIND);
-      if (ep != NULL) printf("%s\n", copy_word);
+      if (ep != NULL){
+        printf("%s\n", copy_word);
+        add_word_to_dynamic_array(copy_word, &neighbor_array, &array_size, &neighbor_nums);
+      }
       pointer++;
     }
     copy_word[i] = letter;
   }
-
+  return neighbor_array;
 }
 
 

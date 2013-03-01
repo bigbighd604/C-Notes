@@ -6,7 +6,7 @@
 int main(int argc, char *argv[]) {
   const char *p1;
   char const *p2;
-  
+
   p1 = strdup("aaaaa");
   p2 = strdup("bbbbb");
 
