@@ -1,0 +1,10 @@
+# example config file
+# format is:
+# port user path name arg1 arg2 arg3 arg4 ...
+
+3333    nobody  /usr/games/fortune     fortune              -l
+2222    andrewlv  /tmp/echoserver  echoserver      arg1  arg2
+
+1111    andrewlv /bin/ls   ls            -l /tmp/tttt
+
+4444    nobody /bin/xx     xx              -a -b -c -d -e -f -g -h -i 

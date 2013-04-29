@@ -1,0 +1,7 @@
+Execise 1:
+  sort a number array in reverse order
+
+Execise 2:
+  Implement a generic filter function
+  typedef int (*predicate_t)(const void *);
+  void filter(void *base, size_t member_size, size_t nmemb, void **out_data, size_t *out_nmemb, predicate_t p);

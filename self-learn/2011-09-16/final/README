@@ -1,0 +1,4 @@
+basic.c is the very basic version, use 'make basic' to compile
+main.c is the version implemented all options(including max level, not regex), use 'make' to compile
+full_filter.c(used by main.c) implements the regex, use 'make full' to compile
+

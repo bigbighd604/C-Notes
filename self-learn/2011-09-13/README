@@ -1,0 +1,9 @@
+Execise:
+Implement double-linked list for storing strings
+append: append(struct list *l, const char *s)
+prepend: prepend(struct list *l, const char *s)
+delete: delete(struct lits *n, struct node, *n)
+create: create a double linked list
+destroy: destroy a double linked list with data
+
+

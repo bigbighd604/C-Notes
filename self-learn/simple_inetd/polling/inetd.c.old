@@ -1,0 +1,220 @@
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <wait.h>
+#include <unistd.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/types.h>
+
+
+struct AppStruct {
+  int port;
+  char *app;
+  char **args;
+};
+
+
+struct InetStruct {
+  int sock; // connected socket.
+  struct AppStruct app;
+};
+
+
+static void clean_children(int signo) {
+  int status;
+  pid_t pid;
+
+  pid = waitpid(-1, &status, WNOHANG);
+  if (pid > 0) {
+    if (WIFEXITED(status)) {
+      printf("Child process:%d is exited normally\n", pid);
+    }
+  } else if (pid < 0) {
+    perror("waitpid:");
+  }
+}
+
+
+struct AppStruct *parse_config(char *path, int *number_of_apps)  {
+  // Parse config file and return a list of AppStruct.
+  // Now it's only return a faked list of structure.
+  struct AppStruct *appstructs;
+  *number_of_apps = 2;
+
+  appstructs = calloc(*number_of_apps,  sizeof(struct AppStruct));
+  appstructs[0].port = 3333;
+  appstructs[0].app = "/bin/ls";
+  appstructs[0].args = calloc(3, sizeof(char *));
+  appstructs[0].args[0] = "ls";
+  appstructs[0].args[1] = "-l";
+  appstructs[0].args[2] = NULL;
+  appstructs[1].port = 4444;
+  appstructs[1].app = "/bin/echo";
+  return appstructs;
+}
+
+
+void folk_and_handle_connection(int conn, struct AppStruct appstruct) {
+  // fork and handle the connection in child.
+  pid_t pid;
+  sigset_t blockmask;
+  struct sigaction sa;
+
+  // Register handler for SIGCHLD
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sa.sa_handler = clean_children;
+  if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+    perror("sigaction:");
+  }
+
+  // Block SIGCHLD before fork to eliminate race condition
+  sigemptyset(&blockmask);
+  sigaddset(&blockmask, SIGCHLD);
+  if (sigprocmask(SIG_BLOCK, &blockmask, NULL) == -1) {
+    perror("sigprocmask:");
+  }
+
+  pid = fork();
+  if (pid < 0) {
+    perror("fork:");
+  } else if (pid > 0) {
+    // Enable receive SIGCHLD signale
+    if (sigprocmask(SIG_UNBLOCK, &blockmask, NULL) == -1) {
+      perror("sigprocmask:");
+    }
+    close(conn);
+  } else {
+    int i;
+    struct rlimit limit;
+    if (getrlimit(RLIMIT_NOFILE, &limit) == -1) {
+      for (i = 0; i < 3; i++) {
+        close(i);
+      }
+    } else {
+      for (i = 0; i < limit.rlim_max; i++) {
+        if (i != conn) close(i);
+      }
+    }
+    for (i = 0; i < 3; i++) {
+      dup2(conn, i);
+    }
+    close(conn);
+    execv(appstruct.app, appstruct.args);
+    printf("execv for %s failed \n", appstruct.app);
+  }
+}
+
+
+void poll_listen_socks(struct InetStruct *inetstructs,
+                       struct AppStruct *appstructs, int number_of_apps) {
+  // poll all listening socks for POLLIN events.
+  // if there is new connection, accept and call handle_connection
+  int index;
+  int conn;
+  struct pollfd *fd, fds[number_of_apps];
+  for (index = 0; index < number_of_apps; index++) {
+    fds[index].fd = inetstructs[index].sock;
+    fds[index].events = POLLIN;
+  }
+
+  while (1) {
+    if ((poll(fds, number_of_apps, -1)) < 0) {
+      perror("poll:");
+      continue;
+    }
+    for (index = 0; index < number_of_apps; index++) {
+      fd = &(fds[index]);
+      if (fd->revents & POLLIN) {
+        struct sockaddr_in peer;
+        socklen_t size = sizeof(peer);
+
+        if ((conn = accept(fd->fd, (struct sockaddr *)&peer, &size)) == -1) {
+          perror("accept:");
+        } else {
+          folk_and_handle_connection(conn, appstructs[index]);
+        }
+      }
+    }
+  }
+}
+
+
+struct InetStruct *generate_listen_socks(struct AppStruct *appstructs,
+                                         int number_of_apps) {
+  // Generate listen sockets for all defined apps.
+  int i;
+  int sock;
+  int optval = 1;
+  struct AppStruct *appstruct;
+  struct sockaddr_in listen_addr;
+  struct InetStruct *inetstructs;
+  inetstructs = calloc(number_of_apps, sizeof(struct InetStruct));
+
+  for (i = 0; i < number_of_apps; i++) {
+    appstruct = &(appstructs[i]);
+    sock = socket(AF_INET, SOCK_STREAM, getprotobyname("tcp")->p_proto);
+    if (sock == -1) {
+      perror("socket:");
+      printf("Failed to create socket for %s on port %d\n",
+             appstruct->app, appstruct->port);
+      exit(EXIT_FAILURE);
+    }
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (void*)&optval, sizeof(optval));
+
+    listen_addr.sin_family = AF_INET;
+    listen_addr.sin_port = htons(appstruct->port);
+    listen_addr.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(sock, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) != 0) {
+      perror("bind:");
+      printf("Failed to bind port %d for %s\n",
+             appstruct->port, appstruct->app);
+      exit(EXIT_FAILURE);
+    }
+
+    if (listen(sock, 2) != 0) {
+      perror("listen:");
+      exit(EXIT_FAILURE);
+    }
+    inetstructs[i].sock = sock;
+    inetstructs[i].app = *appstruct;
+    printf("listeningg on %s:%d\n", inet_ntoa(listen_addr.sin_addr), appstruct->port);
+  }
+  return inetstructs;
+}
+
+
+void setup(struct AppStruct *appstructs, int number_of_apps) {
+  int i;
+  struct InetStruct *inetstructs;
+  inetstructs = generate_listen_socks(appstructs, number_of_apps);
+  for (i = 0; i < number_of_apps; i++) {
+    printf("sock:%d for app->%s on port->%d\n", inetstructs[i].sock, inetstructs[i].app.app, inetstructs[i].app.port);
+  }
+  poll_listen_socks(inetstructs, appstructs, number_of_apps);
+}
+
+
+int main(int argc, char * argv[]) {
+  int i;
+  int number_of_apps;
+  struct AppStruct *appstructs;
+
+  if (argc < 2) {
+    printf("Usage: %s config-file\n", argv[0]);
+    exit(EXIT_FAILURE);
+  }
+
+  appstructs = parse_config(argv[1], &number_of_apps);
+  for (i = 0; i < number_of_apps; i++) {
+    printf("[%d]:name-> %s, port->%d\n", i, appstructs[i].app, appstructs[i].port);
+  }
+  setup(appstructs, number_of_apps);
+}
