@@ -1,0 +1,28 @@
+#
+# How to split ape to flac files in unbuntu
+#
+
+# Prepare
+
+# Install encodec shnsplit needs
+$ sudo add-apt-repository ppa:flacon/ppa
+$ sudo apt-get update
+$ sudo apt-get install flacon
+
+# Install enconv
+$ sudo apt-get install enca
+
+# Install cuebreakpoints and shnsplit
+$ sudo apt-get install cuetools shntool
+
+# Install flac and wavpack
+$ sudo apt-get install flac wavpack
+
+# Convert charset 
+$enconv -L zh -x utf8 CD-2.cue
+# Split flac file from ape file, using cue info
+$cuebreakpoints CD-2.cue |shnsplit -o flac CD-2.ape 
+# Add tag info
+$cuetag CD-2.cue split-track*.flac
+
+# http://www.webupd8.org/2009/04/split-ape-and-flac-files-in-ubuntu-and.html
